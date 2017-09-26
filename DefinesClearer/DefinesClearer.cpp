@@ -6,13 +6,14 @@
 #include <vector>
 #include <set>
 #include <string>
-#include <map>
+#include <unordered_map>
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/find.hpp>
 #include <boost/algorithm/string/erase.hpp>
 #include <boost/algorithm/string/find.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <regex>
+#include <cstdlib>
 
 using std::vector;
 using std::set;
@@ -20,6 +21,13 @@ using std::string;
 using namespace boost::filesystem;
 
 string ProjectName;
+std::unordered_map<string, string> VPW_DEFINES;
+
+std::string get_env_var(std::string const & key)
+{
+	auto val = getenv(key.c_str());
+	return val == nullptr ? std::string("") : std::string(val);
+}
 
 vector<path> get_all_files(path p) {
 	vector<path> v;
@@ -102,31 +110,6 @@ set<string> get_defines_from_project_file(path p)
 	}
 	return allDefines;
 }
-
-class ConjunctionMacroExpression { // a && b ... && c
-	std::vector<std::pair<string, bool> > MacroNames;
-public:
-	explicit ConjunctionMacroExpression(string&& s) {
-		size_t pos = 0, open = 0, close = 0;
-		while (pos = s.find("defined", close) != string::npos) {
-			open = s.find('(', pos);
-			close = s.find(')', open);
-			auto macroName = s.substr(open + 1, close - open - 1);
-			bool defined = (s[pos - 1] != '!');
-			MacroNames.push_back(std::make_pair(macroName, defined));
-		}
-	}
-
-	bool eval(const set<string>& allDefs) const {
-		for (auto&& p : MacroNames) {
-			if ((p.second && allDefs.find(p.first) == end(allDefs)) ||
-				(!p.second && allDefs.find(p.first) != end(allDefs))) {
-				return false;
-			}
-		}
-		return true;
-	}
-};
 
 bool simple_eval(const string& s, size_t open, size_t close, const set<string>& allDefines) {
 	bool defined = (s[open - 1] != '!');
