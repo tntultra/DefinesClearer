@@ -89,6 +89,33 @@ bool simple_eval(const string& s, size_t open, size_t close, const set<string>& 
 	return (defined && allDefines.find(macroName) != end(allDefines)) || (!defined && allDefines.find(macroName) == end(allDefines));
 }
 
+bool full_eval_simple_line(const string& entry, bool removeRow, const set<string>& allDefines) {
+	bool conjunction = (entry.find("&&") != string::npos);
+	if ((conjunction && !removeRow) || (!conjunction && removeRow)) {
+		//statement eval not determined yet
+		size_t pos, cb = 0;
+		while ((pos = entry.find("defined", cb)) != string::npos) {
+			cb = entry.find(')', pos + 7);
+			auto eval = simple_eval(entry, pos + 6, cb, allDefines);
+			if (!conjunction && eval) {
+				return false;
+			}
+			else if (conjunction && !eval) {
+				return true;
+			}
+		}
+		//if (pos == string::npos) {
+			if (conjunction) {
+				return false;
+			}
+			else {
+				return true;
+			}
+		//}
+	}
+}
+
+
 void convert_and_save_file(path f, const set<string>& allDefines) {
 	ifstream ifs{ f };
 	auto filename = f.filename();
@@ -157,38 +184,10 @@ void convert_and_save_file(path f, const set<string>& allDefines) {
 				//process only "simple" evaluations
 				if (close == string::npos) {
 					//assuming only one logical sign in whole entry
-					bool conjunction = (entry.find("&&") != string::npos);
-					bool or = (entry.find("||") != string::npos);
-					if (conjunction && or ) {
-						continue;
-					}
-					if (!conjunction && !or ) {
-						conjunction = true;
-					}
-					size_t cb = 0;
-					while ((pos = entry.find("defined", cb)) != string::npos) {
-						cb = entry.find(')', pos+7);
-						auto eval = simple_eval(entry, pos, cb, allDefines);
-						if (!conjunction && eval) {
-							removeRow = false;
-							break;
-						}
-						else if (conjunction && !eval) {
-							macro = entry;
-							depthToRemove = macroDepth;
-							removeRow = true;
-							break;
-						}
-					}
-					if (pos == string::npos) {//not breaked from while
-						if (conjunction) {
-							removeRow = false;
-						}
-						else {
-							macro = entry;
-							depthToRemove = macroDepth;
-							removeRow = true;
-						}
+					removeRow = full_eval_simple_line(entry, removeRow, allDefines);
+					if (removeRow) {
+						macro = entry;
+						depthToRemove = macroDepth;
 					}
 				}
 			}
@@ -196,7 +195,7 @@ void convert_and_save_file(path f, const set<string>& allDefines) {
 			removeRow = !removeRow;
 		}
 		else if (entry.find("#endif") != string::npos) {
-			if (macro == "#if defined(MAKE_SAMLIC) && defined(MAKE_FEP)") {
+			if (macro == "#if defined(MAKE_SAMLIC) && defined(MAKE_FEP)") {//"conditional breakpoint" haha
 				int a = removeRow + 10;
 				++a;
 				if (a == 4)
@@ -211,47 +210,28 @@ void convert_and_save_file(path f, const set<string>& allDefines) {
 				removeRow = false;
 			}
 		}
-		else if (entry.find ("//") == string::npos && 
-			entry.find("@note") == string::npos &&
-			entry.find("#error") == string::npos &&
+		else if (entry.find ("//") == string::npos && //on commented line
+			entry.find("@note") == string::npos && // on noted brief line
+			entry.find("#error") == string::npos && // on error line
 			(pos = entry.find("defined")) != string::npos) {
 			if (entry[pos - 1] != '!' && !isspace(entry[pos - 1])) {
+				//part of word/variable name
 				continue;
 			}
 			boost::trim_left(entry);
-			if (entry[0] == '*')
+			if (entry[0] == '*') {
+				//part of brief
 				continue;
-			//defines breaked from previous line
-			bool conjunction = (entry.find("&&") != string::npos);
-			if ((conjunction && !removeRow) || (!conjunction && removeRow)) {
-				//statement eval not determined yet
-				size_t cb = 0;
-				while ((pos = entry.find("defined", cb)) != string::npos) {
-					cb = entry.find(')', pos + 7);
-					auto eval = simple_eval(entry, pos + 6, cb, allDefines);
-					if (!conjunction && eval) {
-						removeRow = false;
-						break;
-					}
-					else if (conjunction && !eval) {
-						macro = entry;
-						depthToRemove = macroDepth;
-						removeRow = true;
-						break;
-					}
-				}
-				if (conjunction) {
-					removeRow = false;
-				}
-				else {
-					macro = entry;
-					depthToRemove = macroDepth;
-					removeRow = true;
-				}
+			}
+			//defines break from previous line
+			removeRow = full_eval_simple_line(entry, removeRow, allDefines);
+			if (removeRow) {
+				macro = entry;
+				depthToRemove = macroDepth;
 			}
 		}
 		else {
-			if (entry == "			if (!IsRFRAllow())") {
+			if (entry == "			if (!IsRFRAllow())") {//another "conditional breakpoint"
 				int a = removeRow+10;
 				++a;
 				if (a == 4)
