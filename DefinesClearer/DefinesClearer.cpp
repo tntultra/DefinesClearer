@@ -31,6 +31,53 @@ vector<path> get_all_files(path p) {
 	return v;
 }
 
+void get_vpw_defines(path p) {
+	ifstream vpw_s{ p };
+	string entry, name, value;
+	size_t pos;
+	while (std::getline(vpw_s, entry)) {
+		if ((pos = entry.find("<Set")) != string::npos) {
+			auto namePos = entry.find("Name=\"", pos);
+			auto cb = entry.find("\"", namePos + 6);
+			auto len = cb - namePos - 6;
+			name = entry.substr(namePos + 6, len);
+
+			auto valuePos = entry.find("Value=", cb);
+			char bracket = entry[valuePos + 6];
+			cb = entry.find(bracket, valuePos + 7);
+			len = cb - valuePos - 7;
+			value = entry.substr(valuePos + 7, len);
+
+			if (bracket == '\"') {
+				size_t prev = 0;
+				string finalValue;
+				while ((pos = value.find("%(", prev)) != string::npos) {
+					finalValue += value.substr(prev, pos - prev);
+					auto cb = value.find(")", pos);
+					auto len = cb - pos - 2;
+					auto macro = value.substr(pos + 2, len);
+					auto it = VPW_DEFINES.find(macro);
+					if (it == end(VPW_DEFINES)) {
+						//get path variable
+						macro = get_env_var(macro);
+					}
+					else {//alrdy exists
+						macro = it->second;
+					}
+					finalValue += macro;
+					prev = cb + 1;
+				}
+				finalValue += value.substr(prev);
+
+				VPW_DEFINES[name] = finalValue;
+			}
+			else {//multiple defines
+
+			}
+		}
+	}
+}
+
 set<string> get_defines_from_project_file(path p)
 {
 	set<string> allDefines;
