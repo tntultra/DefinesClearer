@@ -10,6 +10,9 @@
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/find.hpp>
 #include <boost/algorithm/string/erase.hpp>
+#include <boost/algorithm/string/find.hpp>
+#include <boost/algorithm/string/trim.hpp>
+#include <regex>
 
 using std::vector;
 using std::set;
@@ -97,6 +100,7 @@ void convert_and_save_file(path f, const set<string>& allDefines) {
 	auto outputFileName = outputFolder.string() + "\\" + filename.string();
 	ofstream ofs{ outputFileName };
 	string entry;
+	string macro;
 	bool removeRow = false;
 	size_t macroDepth = 0;
 	size_t depthToRemove = 0;
@@ -104,14 +108,22 @@ void convert_and_save_file(path f, const set<string>& allDefines) {
 		size_t pos, nameLen;
 		//eval
 		if ((pos = entry.find("#ifdef")) != string::npos) {
+			
 				++macroDepth;
 				if (macroDepth > 1 && removeRow) {
 					continue;
 				}
-				pos += 6;
+				pos += 7;
 				for (nameLen = 0; pos + nameLen < entry.length() && !isspace(entry[pos+nameLen]); ++nameLen);
 				auto macroName = entry.substr(pos, nameLen);
+				if (macroName == "MAKE_RFR" && filename.string() == "hypertcf.cpp") {
+					int a = removeRow + 10;
+					++a;
+					if (a == 4)
+						--a;
+				}
 				if (allDefines.find(macroName) == end(allDefines)) {
+					macro = entry;
 					removeRow = true;
 					depthToRemove = macroDepth;
 				}
@@ -121,15 +133,16 @@ void convert_and_save_file(path f, const set<string>& allDefines) {
 				if (macroDepth > 1 && removeRow) {
 					continue;
 				}
-				pos += 7;
+				pos += 8;
 				for (nameLen = 0; pos + nameLen < entry.length() && !isspace(entry[pos + nameLen]); ++nameLen);
 				auto macroName = entry.substr(pos, nameLen);
 				if (allDefines.find(macroName) != end(allDefines)) {
+					macro = entry;
 					removeRow = true;
 					depthToRemove = macroDepth;
 				}
 			}
-		else if (entry.find("#if ") != string::npos || entry.find("#elif ") != string::npos) {
+		else if (entry.find("#if") != string::npos || entry.find("#elif") != string::npos) {
 				++macroDepth;
 				if (macroDepth > 1 && removeRow) {
 					continue;
@@ -149,77 +162,46 @@ void convert_and_save_file(path f, const set<string>& allDefines) {
 					if (conjunction && or ) {
 						continue;
 					}
+					if (!conjunction && !or ) {
+						conjunction = true;
+					}
 					size_t cb = 0;
 					while ((pos = entry.find("defined", cb)) != string::npos) {
 						cb = entry.find(')', pos+7);
-						auto eval = simple_eval(entry, pos+6, cb, allDefines);
+						auto eval = simple_eval(entry, pos, cb, allDefines);
 						if (!conjunction && eval) {
 							removeRow = false;
 							break;
 						}
 						else if (conjunction && !eval) {
+							macro = entry;
+							depthToRemove = macroDepth;
 							removeRow = true;
 							break;
 						}
 					}
-					if (conjunction) {
-						removeRow = false;
-					}
-					else {
-						removeRow = true;
-					}
-				}
-
-				/*
-				removeRow = true;
-				//evaluate macro expression
-				boost::algorithm::erase_all(entry, " ");
-				size_t pos = 0, open = 0, close = 0;
-				while (open = entry.find("(d", open) != string::npos && removeRow) {
-					close = entry.find("))", open);
-					while (pos = entry.find("defined", close) != string::npos && pos < open) {
-						if (simple_eval(entry, pos, close, allDefines)) {
+					if (pos == string::npos) {//not breaked from while
+						if (conjunction) {
 							removeRow = false;
-							continue;
 						}
-					}
-					if (removeRow) {
-						ConjunctionMacroExpression ce{ entry.substr(open + 1, close - open - 1) };
-						if (ce.eval(allDefines)) {
-							removeRow = false;
+						else {
+							macro = entry;
+							depthToRemove = macroDepth;
+							removeRow = true;
 						}
 					}
 				}
-				//eval after last compound statement
-				bool conjunction = false;
-				while ((pos = entry.find("defined", pos+2)) != string::npos && removeRow) {
-					auto cb = entry.find(')', pos);
-					if (cb != entry.length() - 1 && entry[cb + 1] == '&') {
-						conjunction = true;
-					}
-					auto eval = simple_eval(entry, pos, cb, allDefines);
-					if (!conjunction && eval) {
-						removeRow = false;
-						break;
-					}
-					else if (conjunction && !eval) {
-						break;
-					}
-					else if (conjunction && eval && cb == entry.length()-1) {
-						removeRow = false;
-					}
-				}
-				if (entry.find(">") != string::npos || entry.find("<") != string::npos) {
-					removeRow = false;//for now
-				}
-				if (removeRow) {
-					depthToRemove = macroDepth;
-				}*/
 			}
 		else if (entry.find("#else") != string::npos) {
 			removeRow = !removeRow;
 		}
 		else if (entry.find("#endif") != string::npos) {
+			if (macro == "#if defined(MAKE_SAMLIC) && defined(MAKE_FEP)") {
+				int a = removeRow + 10;
+				++a;
+				if (a == 4)
+					--a;
+			}
 			if (depthToRemove == macroDepth) {
 				removeRow = false;
 				depthToRemove = 0;
@@ -229,10 +211,52 @@ void convert_and_save_file(path f, const set<string>& allDefines) {
 				removeRow = false;
 			}
 		}
-		else if (entry.find("defined") != string::npos) {
+		else if (entry.find ("//") == string::npos && 
+			entry.find("@note") == string::npos &&
+			entry.find("#error") == string::npos &&
+			(pos = entry.find("defined")) != string::npos) {
+			if (entry[pos - 1] != '!' && !isspace(entry[pos - 1])) {
+				continue;
+			}
+			boost::trim_left(entry);
+			if (entry[0] == '*')
+				continue;
 			//defines breaked from previous line
+			bool conjunction = (entry.find("&&") != string::npos);
+			if ((conjunction && !removeRow) || (!conjunction && removeRow)) {
+				//statement eval not determined yet
+				size_t cb = 0;
+				while ((pos = entry.find("defined", cb)) != string::npos) {
+					cb = entry.find(')', pos + 7);
+					auto eval = simple_eval(entry, pos + 6, cb, allDefines);
+					if (!conjunction && eval) {
+						removeRow = false;
+						break;
+					}
+					else if (conjunction && !eval) {
+						macro = entry;
+						depthToRemove = macroDepth;
+						removeRow = true;
+						break;
+					}
+				}
+				if (conjunction) {
+					removeRow = false;
+				}
+				else {
+					macro = entry;
+					depthToRemove = macroDepth;
+					removeRow = true;
+				}
+			}
 		}
 		else {
+			if (entry == "			if (!IsRFRAllow())") {
+				int a = removeRow+10;
+				++a;
+				if (a == 4)
+					--a;
+			}
 			if (!removeRow) {
 				ofs << entry << std::endl;
 			}
